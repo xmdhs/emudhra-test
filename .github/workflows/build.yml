@@ -1,0 +1,99 @@
+name: Build APK
+
+# Manual only: every run publishes a GitHub Release with the signed APK.
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (default: build-<run number>-<short sha>)'
+        required: false
+        default: ''
+      prerelease:
+        description: 'Mark the release as a pre-release'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  # softprops/action-gh-release creates the release.
+  contents: write
+  # actions/attest mints a Sigstore signing certificate via OIDC.
+  id-token: write
+  attestations: write
+  artifact-metadata: write
+
+concurrency:
+  group: build-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: >-
+            platforms;android-34
+            build-tools;34.0.0
+            platform-tools
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      # keystore/release.jks is committed deliberately (see keystore/README.md),
+      # so the release build needs no repository secrets.
+      - name: Build release APK
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify APK signature
+        id: verify
+        run: |
+          set -euo pipefail
+          apksigner="$ANDROID_HOME/build-tools/34.0.0/apksigner"
+          apk=app/build/outputs/apk/release/app-release.apk
+          "$apksigner" verify --verbose --print-certs "$apk"
+          echo "sha256=$(sha256sum "$apk" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+
+      # Sigstore-backed build provenance. Verifiable with:
+      #   gh attestation verify app-release.apk --repo <owner>/<repo>
+      # Note: artifact attestations require a public repository (or GitHub
+      # Enterprise Cloud for private ones).
+      - name: Attest APK
+        uses: actions/attest@v4
+        with:
+          subject-path: app/build/outputs/apk/release/app-release.apk
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: emudhra-trust-checker-apk
+          path: app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ inputs.tag != '' && inputs.tag || format('build-{0}-{1}', github.run_number, github.sha) }}
+          name: eMudhra Trust Checker ${{ inputs.tag != '' && inputs.tag || github.run_number }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: true
+          body: |
+            Signed release APK for the eMudhra intermediate CA trust check.
+
+            - APK SHA-256: `${{ steps.verify.outputs.sha256 }}`
+            - Attested with Sigstore build provenance:
+              `gh attestation verify app-release.apk --repo ${{ github.repository }}`
+            - The signing keystore is committed to this repository on purpose
+              (see `keystore/README.md`), so the APK signature only proves which
+              build produced the file, not who can build it.
+          files: app/build/outputs/apk/release/app-release.apk
