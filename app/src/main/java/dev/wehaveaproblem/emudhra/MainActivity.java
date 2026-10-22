@@ -3,10 +3,12 @@ package dev.wehaveaproblem.emudhra;
 import android.app.Activity;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.TypedValue;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -126,9 +128,15 @@ public class MainActivity extends Activity {
         storeView.setLineSpacing(dp(2), 1f);
         column.addView(storeView, cardParams(dp(12)));
 
+        TextView hint = new TextView(this);
+        hint.setText("点击每条结果可展开该证书链的详情。");
+        hint.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        hint.setTextColor(COLOR_MUTED);
+        addWithTopMargin(column, hint, dp(18));
+
         resultsContainer = new LinearLayout(this);
         resultsContainer.setOrientation(LinearLayout.VERTICAL);
-        column.addView(resultsContainer);
+        addWithTopMargin(column, resultsContainer, dp(8));
 
         TextView footer = new TextView(this);
         footer.setText("怎么读这两个结果：\n"
@@ -322,6 +330,8 @@ public class MainActivity extends Activity {
 
         LinearLayout header = new LinearLayout(this);
         header.setOrientation(LinearLayout.HORIZONTAL);
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        header.setBackground(selectableBackground());
 
         TextView label = new TextView(this);
         label.setText(chain.label() + " · "
@@ -337,39 +347,77 @@ public class MainActivity extends Activity {
         badge.setTextColor(badgeColor(online));
         badge.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         badge.setTypeface(Typeface.DEFAULT_BOLD);
-        header.addView(badge);
+        LinearLayout.LayoutParams badgeParams = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        badgeParams.rightMargin = dp(8);
+        header.addView(badge, badgeParams);
+
+        // Chevron that flips when the details are toggled.
+        TextView expander = new TextView(this);
+        expander.setText("▸");
+        expander.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
+        expander.setTextColor(COLOR_MUTED);
+        header.addView(expander);
+
         card.addView(header);
+
+        // Everything below the header is a details block, collapsed by default.
+        LinearLayout details = new LinearLayout(this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        details.setVisibility(View.GONE);
 
         TextView host = new TextView(this);
         host.setText(chain.host);
         host.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         host.setTextColor(COLOR_MUTED);
         host.setTypeface(Typeface.MONOSPACE);
-        addWithTopMargin(card, host, dp(6));
+        addWithTopMargin(details, host, dp(10));
 
         TextView onlineText = new TextView(this);
         onlineText.setText("实际连接：" + online.detail);
         onlineText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         onlineText.setTextColor(COLOR_TEXT);
         onlineText.setLineSpacing(dp(2), 1f);
-        addWithTopMargin(card, onlineText, dp(8));
+        addWithTopMargin(details, onlineText, dp(8));
 
         TextView offlineText = new TextView(this);
         offlineText.setText("信任库：" + offline.reason);
         offlineText.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         offlineText.setTextColor(COLOR_TEXT);
         offlineText.setLineSpacing(dp(2), 1f);
-        addWithTopMargin(card, offlineText, dp(4));
+        addWithTopMargin(details, offlineText, dp(4));
 
         TextView path = new TextView(this);
         path.setText(describeChain(chain));
         path.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
         path.setTextColor(COLOR_MUTED);
         path.setLineSpacing(dp(2), 1f);
-        addWithTopMargin(card, path, dp(6));
+        addWithTopMargin(details, path, dp(6));
+
+        card.addView(details);
+
+        final LinearLayout detailsRef = details;
+        final TextView expanderRef = expander;
+        header.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                boolean expand = detailsRef.getVisibility() != View.VISIBLE;
+                detailsRef.setVisibility(expand ? View.VISIBLE : View.GONE);
+                expanderRef.setText(expand ? "▾" : "▸");
+            }
+        });
 
         card.setLayoutParams(cardParams(dp(10)));
         return card;
+    }
+
+    /** Touch feedback for the collapsible header. */
+    private Drawable selectableBackground() {
+        TypedValue out = new TypedValue();
+        if (getTheme().resolveAttribute(android.R.attr.selectableItemBackground, out, true)) {
+            return getDrawable(out.resourceId);
+        }
+        return null;
     }
 
     /** Headline for the row follows the live connection, like the web page. */
